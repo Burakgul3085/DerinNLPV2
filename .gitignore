@@ -1,0 +1,23 @@
+# Ortam ve sırlar
+.env
+.env.local
+*.env
+!.env.example
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.Python
+
+# Node / Vite
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
