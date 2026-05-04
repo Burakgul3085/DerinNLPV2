@@ -11,6 +11,7 @@ import json
 import os
 import re
 import time
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator, Callable
@@ -68,11 +69,28 @@ FRONTEND_ORIGINS = os.getenv(
 ).split(",")
 
 SYSTEM_PROMPT = (
-    "Sen uzman bir yazılım mimarı ve teknik yazarsın. Sana bir projenin tam klasör yapısını ve "
-    "kaynak kodlarını veriyorum. Lütfen bu kodları derinlemesine analiz et ve GitHub projesi için "
-    "son derece profesyonel, kapsamlı bir README.md dosyası oluştur. Bu dosya; Proje Özeti, "
-    "Kullanılan Teknolojiler, Klasör Yapısı, Kurulum ve Çalıştırma Adımlarını içermelidir. "
-    "Kesinlikle sadece Markdown formatında çıktı ver, ekstra sohbet metni ekleme."
+    "Sen uzman bir yazılım mimarı ve teknik yazarsın. Sana bir projenin dosya yolları özeti ve "
+    "kaynak kodlarını veriyorum. GitHub için profesyonel bir README.md üret. Bölümler: Proje Özeti, "
+    "Kullanılan Teknolojiler, Klasör Yapısı, Kurulum ve Çalıştırma.\n\n"
+    "Klasör yapısı bölümü — görünüm (GitHub + Mermaid 11 uyumlu):\n"
+    "- Uzun ASCII ağaç (├──, └──, │) kullanma.\n"
+    "- Önce Markdown tablosu: sütunlar tam olarak 'Bölüm / klasör' ve 'Kısa açıklama' (Türkçe, tek satır).\n"
+    "- İsteğe bağlı: tek bir ```mermaid fenced blok. Mermaid 11 kurallarına kesin uy:\n"
+    "  * flowchart TB veya graph LR kullan; subgraph kullanma (hata riski yüksek).\n"
+    "  * Her düğüm kimliği yalnız harf/rakam/alt çizgi (ör. ds, lab, lib1); nokta veya '/' kimlik olamaz.\n"
+    "  * Kök için asla tek başına '.' kullanma; anlamı köşeli parantez içinde yaz: "
+    "ör. root_node[\"Depo kökü\"].\n"
+    "  * Düğüm yazımı: kimlik[\"Görünen kısa metin\"] veya kimlik[metin]; bağlantı: A --> B.\n"
+    "  * Mermaid bloğunun içine HTML, <style>, %%{init: ...}%% veya satır dışı CSS ekleme; "
+    "bunlar parse hatası üretir. classDef kullanma (model hatalarına açık).\n"
+    "  * En fazla 18 düğüm ve 24 ok; sade yapı.\n"
+    "  * Geçerli mini örnek (bunu kopyalayıp uyarlayabilirsin):\n"
+    "```mermaid\nflowchart TB\n  root_node[\"Depo\"]\n  lib_node[\"lib\"]\n  root_node --> lib_node\n```\n"
+    "- Mermaid emin değilsen bloğu tamamen atla; tabloyu genişleterek anlat.\n"
+    "- Uzun liste için yalnızca şu HTML kalıbını kullan: <details><summary>Detaylı yapı</summary> … </details>.\n"
+    "- Flutter vb. için ios/android/macos/web/windows tabloda kısa satırlar.\n"
+    "- 'Depo yapısı özeti' verisi ile çelişme.\n\n"
+    "Çıktı yalnızca README içeriği; ekstra sohbet metni yok."
 )
 
 
@@ -155,6 +173,43 @@ def path_should_skip(rel_path: str) -> bool:
     return False
 
 
+def build_compact_structure_markdown(paths: list[str]) -> str:
+    """README tablosu ve Mermaid için modele üst-seviye özet (dosya sayıları)."""
+    root_total: dict[str, int] = defaultdict(int)
+    root_sub: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for p in paths:
+        segs = [s for s in p.replace("\\", "/").split("/") if s]
+        if not segs:
+            continue
+        r = segs[0]
+        root_total[r] += 1
+        if len(segs) >= 2:
+            root_sub[r][segs[1]] += 1
+
+    lines: list[str] = [
+        "| Üst klasör / kök dosya | Bu dalda yaklaşık kaynak dosya sayısı |",
+        "|---|---:|",
+    ]
+    for r in sorted(root_total.keys(), key=lambda k: (-root_total[k], k))[:22]:
+        safe = r.replace("|", "/")
+        lines.append(f"| `{safe}` | {root_total[r]} |")
+    if len(root_total) > 22:
+        lines.append(f"| … | (+{len(root_total) - 22} diğer) |")
+
+    lines.append("")
+    lines.append("Öne çıkan alt klasörler (üst klasör başına en fazla 6 alt öğe):")
+    for r in sorted(root_total.keys(), key=lambda k: (-root_total[k], k))[:10]:
+        subs = root_sub.get(r, {})
+        if not subs:
+            continue
+        lines.append(f"- **`{r}/`**")
+        for s in sorted(subs.keys(), key=lambda k: (-subs[k], k))[:6]:
+            lines.append(f"  - `{s}/` — {subs[s]} dosya")
+        if len(subs) > 6:
+            lines.append(f"  - … (+{len(subs) - 6} alt öğe)")
+    return "\n".join(lines)
+
+
 def collect_context_from_repo(g: Github, owner: str, repo_name: str, log: Callable[[str], None]) -> str:
     repo = g.get_repo(f"{owner}/{repo_name}")
     default_branch = repo.default_branch
@@ -210,14 +265,19 @@ def collect_context_from_repo(g: Github, owner: str, repo_name: str, log: Callab
     log(f"[2/5] {len(blobs)} kaynak dosya birleştirildi (~{total_chars} karakter).")
 
     structure_lines = sorted({p for p, _ in blobs})
-    structure_block = "\n".join(structure_lines[:5000])
-    if len(structure_lines) > 5000:
-        structure_block += "\n… (liste kesildi)"
+    structure_compact = build_compact_structure_markdown(structure_lines)
+    sample_lines = structure_lines[:150]
+    sample_flat = "\n".join(sample_lines)
+    if len(structure_lines) > 150:
+        sample_flat += f"\n… (düz yol listesi kısaltıldı; toplam {len(structure_lines)} yol)"
 
     parts: list[str] = [
-        "Aşağıda proje dosya listesi ve kaynak kod içerikleri birleştirilmiştir.\n\n",
-        "## Dosya listesi\n",
-        structure_block,
+        "README'de klasör yapısını tablo + ```mermaid``` bloğu ile sun. Aşağıda özet tablo, örnek yollar "
+        "ve kaynak kodlar var.\n\n",
+        "## Depo yapısı özeti (tablo ve Mermaid için referans)\n",
+        structure_compact,
+        "\n\n## Dosya yolları (örnek)\n",
+        sample_flat,
         "\n\n## Kaynak içerikler\n",
     ]
     for path, body in blobs:
@@ -430,6 +490,23 @@ def _looks_like_model_missing_error(err: BaseException) -> bool:
     return "404" in str(err) or "not found" in msg or "is not supported" in msg
 
 
+def sanitize_readme_mermaid_blocks(readme: str) -> str:
+    """Model üretiminde sızan HTML/style Mermaid 11'de parse hatasına yol açar; temizler."""
+
+    def _clean_body(body: str) -> str:
+        b = body
+        b = re.sub(r"<style[\s\S]*?</style>", "", b, flags=re.IGNORECASE)
+        b = re.sub(r"</?style[^>]*>", "", b, flags=re.IGNORECASE)
+        b = re.sub(r"%%\{[\s\S]*?\}%%", "", b)
+        b = re.sub(r"<[^>\n]{1,200}>", "", b)
+        return b.strip()
+
+    def _sub(m: re.Match) -> str:
+        return f"```mermaid\n{_clean_body(m.group(1))}\n```"
+
+    return re.sub(r"```mermaid\s*\n([\s\S]*?)```", _sub, readme, flags=re.IGNORECASE)
+
+
 def generate_readme_with_gemini(context: str, log: Callable[[str], None]) -> str:
     log("[3/5] Gemini ile README üretiliyor…")
     genai.configure(api_key=GEMINI_API_KEY)
@@ -473,6 +550,7 @@ def generate_readme_with_gemini(context: str, log: Callable[[str], None]) -> str
     fence = re.match(r"^```(?:markdown|md)?\s*\n([\s\S]*?)\n```\s*$", text, re.IGNORECASE)
     if fence:
         text = fence.group(1).strip()
+    text = sanitize_readme_mermaid_blocks(text)
     log(f"[3/5] README taslağı hazır (model: {chosen}).")
     return text
 

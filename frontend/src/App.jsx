@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Children, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
+import rehypeRaw from 'rehype-raw'
+import remarkGfm from 'remark-gfm'
+import MermaidBlock from './MermaidBlock.jsx'
 import {
   Bot,
   ExternalLink,
+  FileDown,
   Github,
   Loader2,
   Sparkles,
@@ -37,13 +41,34 @@ function parseSseBlocks(buffer, onPayload) {
   return rest
 }
 
+function markdownComponents() {
+  return {
+    pre({ children }) {
+      const arr = Children.toArray(children)
+      const first = arr[0]
+      if (
+        isValidElement(first) &&
+        typeof first.props.className === 'string' &&
+        first.props.className.includes('language-mermaid')
+      ) {
+        const raw = first.props.children
+        const chart = Array.isArray(raw) ? raw.join('') : String(raw ?? '')
+        return <MermaidBlock chart={chart.replace(/\n$/, '')} />
+      }
+      return <pre className="readme-pre-wrap">{children}</pre>
+    },
+  }
+}
+
 export default function App() {
+  const mdComponents = useMemo(markdownComponents, [])
   const [repoUrl, setRepoUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [logLines, setLogLines] = useState([])
   const [readme, setReadme] = useState('')
   const [prUrl, setPrUrl] = useState(null)
   const [bannerError, setBannerError] = useState(null)
+  const [exportBusy, setExportBusy] = useState(false)
 
   const terminalRef = useRef(null)
 
@@ -151,6 +176,27 @@ export default function App() {
     return 'text-emerald-400'
   }
 
+  const handleExportWord = async () => {
+    if (!readme.trim() || exportBusy) return
+    setExportBusy(true)
+    try {
+      const { buildReadmeDocxBlob, downloadReadmeDocx } = await import('./readmeToDocx.js')
+      const blob = await buildReadmeDocxBlob(readme)
+      const raw = repoUrl.trim().replace(/\.git$/i, '')
+      const parts = raw.split('/').filter(Boolean)
+      const slug = (parts.length >= 2 ? `${parts[parts.length - 2]}_${parts[parts.length - 1]}` : 'README')
+        .replace(/[^\w.-]+/g, '_')
+        .slice(0, 80)
+      downloadReadmeDocx(blob, `README-${slug}.docx`)
+      appendLog('> README Word (.docx) olarak indirildi.', 'success')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      appendLog(`[HATA] Word dışa aktarma: ${msg}`, 'error')
+    } finally {
+      setExportBusy(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-900 text-white">
       <div className="mx-auto flex max-w-7xl flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
@@ -254,10 +300,25 @@ export default function App() {
           </div>
 
           <div className="flex min-h-[420px] flex-col rounded-2xl border border-slate-800 bg-slate-950/60 shadow-xl shadow-black/30">
-            <div className="flex items-center gap-2 border-b border-slate-800 px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-3">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                 README Önizleme
               </span>
+              {readme.trim() && (
+                <button
+                  type="button"
+                  onClick={handleExportWord}
+                  disabled={exportBusy}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs font-semibold text-slate-100 shadow-sm transition hover:border-emerald-500/50 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {exportBusy ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  ) : (
+                    <FileDown className="h-3.5 w-3.5" aria-hidden />
+                  )}
+                  Word&apos;e aktar
+                </button>
+              )}
             </div>
             <div className="flex-1 overflow-y-auto px-4 py-4">
               {!readme && (
@@ -267,7 +328,13 @@ export default function App() {
               )}
               {readme && (
                 <article className="readme-preview">
-                  <Markdown>{readme}</Markdown>
+                  <Markdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeRaw]}
+                    components={mdComponents}
+                  >
+                    {readme}
+                  </Markdown>
                 </article>
               )}
             </div>
