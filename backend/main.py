@@ -129,6 +129,38 @@ class AnalyzeRequest(BaseModel):
     repo_url: str = Field(..., min_length=10, description="GitHub repository HTTPS URL")
 
 
+class ProfileReposRequest(BaseModel):
+    profile_url: str = Field(..., min_length=8, description="GitHub kullanıcı profil URL'si (örn. https://github.com/kullaniciadi)")
+
+
+# github.com/<tek_segment> — repo değil, ayırıcı veya rezerve yollar
+_GITHUB_PROFILE_RESERVED = frozenset(
+    {
+        "about",
+        "collections",
+        "customer-stories",
+        "enterprise",
+        "explore",
+        "features",
+        "git-guides",
+        "issues",
+        "login",
+        "marketplace",
+        "orgs",
+        "pricing",
+        "pulls",
+        "readme",
+        "security",
+        "settings",
+        "signup",
+        "sponsors",
+        "team",
+        "topics",
+    }
+)
+_GITHUB_LOGIN_RE = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$")
+
+
 def sse_pack(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
@@ -156,6 +188,32 @@ def parse_github_repo(full_url: str) -> tuple[str, str]:
     if len(path_parts) < 2:
         raise ValueError("owner/repo çözümlenemedi; tam GitHub HTTPS URL'si veya owner/repo girin.")
     return path_parts[0], path_parts[1]
+
+
+def parse_github_user_profile_url(full_url: str) -> str:
+    """
+    Örnek: https://github.com/Burakgul3085 veya github.com/Burakgul3085 → login.
+    owner/repo veya tek segment rezerve kelime ise ValueError.
+    """
+    raw = full_url.strip().rstrip("/")
+    url = raw if "://" in raw else f"https://{raw}"
+    parsed = urlparse(url)
+    host = (parsed.netloc or "").lower().split("@")[-1].split(":")[0]
+    if not host or "github.com" not in host:
+        raise ValueError("Yalnızca github.com profil adresleri destekleniyor.")
+
+    path_parts = [p for p in (parsed.path or "").strip("/").split("/") if p]
+    if len(path_parts) != 1:
+        raise ValueError(
+            "Profil adresi tek kullanıcı adı içermeli (örn. https://github.com/kullaniciadi). "
+            "Depo için mevcut «Repo URL» alanını kullanın."
+        )
+    login = path_parts[0]
+    if login.lower() in _GITHUB_PROFILE_RESERVED:
+        raise ValueError("Bu yol bir kullanıcı profili değil; github.com/kullaniciadi biçiminde girin.")
+    if not _GITHUB_LOGIN_RE.match(login):
+        raise ValueError("Geçersiz GitHub kullanıcı adı.")
+    return login
 
 
 def path_should_skip(rel_path: str) -> bool:
@@ -682,6 +740,81 @@ async def analyze_repo(body: AnalyzeRequest):
     )
 
 
+def _collect_user_repos_with_readme_flag(g: Github, login: str) -> dict:
+    """Profil sahibinin GitHub API ile listelenen depoları; kök README varlığı tek tek doğrulanır."""
+    user = g.get_user(login)
+    _ = user.login
+    repos: list[dict] = []
+    for r in user.get_repos():
+        readme_present = False
+        try:
+            r.get_readme()
+            readme_present = True
+        except GithubException:
+            pass
+        pushed = getattr(r, "pushed_at", None)
+        repos.append(
+            {
+                "name": r.name,
+                "full_name": r.full_name,
+                "html_url": r.html_url,
+                "description": (r.description or "").strip() or None,
+                "private": bool(r.private),
+                "fork": bool(r.fork),
+                "archived": bool(getattr(r, "archived", False)),
+                "default_branch": r.default_branch or "main",
+                "language": getattr(r, "language", None),
+                "readme_present": readme_present,
+                "pushed_at": pushed.isoformat() if pushed else None,
+            }
+        )
+    repos.sort(key=lambda row: row.get("pushed_at") or "", reverse=True)
+    return {"login": user.login, "total": len(repos), "repos": repos}
+
+
+@app.post("/api/profile/repos")
+async def list_profile_repositories(body: ProfileReposRequest):
+    """
+    Kullanıcı profil URL'si verildiğinde o hesaba ait depoları listeler (README.md vb. kök readme varlığı dahil).
+    Mevcut `/api/analyze` akışına dokunmaz; dönen html_url doğrudan repo analizinde kullanılabilir.
+    """
+    reload_local_env_into_globals()
+    if not GITHUB_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="GITHUB_TOKEN tanımlı değil; profil depo listesi için backend .env içinde token gerekir.",
+        )
+    try:
+        login = parse_github_user_profile_url(body.profile_url.strip())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    g = Github(GITHUB_TOKEN)
+
+    try:
+
+        def run():
+            return _collect_user_repos_with_readme_flag(g, login)
+
+        data = await asyncio.to_thread(run)
+    except GithubException as ex:
+        api_msg = (
+            ex.data.get("message", str(ex)) if isinstance(getattr(ex, "data", None), dict) else str(ex)
+        )
+        hint = ""
+        if getattr(ex, "status", None) == 404:
+            hint = " — Kullanıcı bulunamadı veya bu token ile görülemiyor."
+        if getattr(ex, "status", None) == 401:
+            hint = " — GITHUB_TOKEN geçersiz veya süresi dolmuş olabilir."
+        raise HTTPException(status_code=400, detail=f"GitHub API: {api_msg}{hint}") from ex
+    except HTTPException:
+        raise
+    except Exception as ex:
+        raise HTTPException(status_code=500, detail=str(ex)) from ex
+
+    return data
+
+
 @app.get("/")
 def root_manifest():
     """Tarayıcıda kök adres — doğru uygulama mı hemen görülür."""
@@ -691,6 +824,7 @@ def root_manifest():
         "meta": "/api/meta",
         "meta_alt": "/meta",
         "analyze": "/api/analyze",
+        "profile_repos": "/api/profile/repos",
     }
 
 
