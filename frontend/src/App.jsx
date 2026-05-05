@@ -133,6 +133,7 @@ export default function App() {
   const [profileCopyHint, setProfileCopyHint] = useState(null)
 
   const terminalRef = useRef(null)
+  const repoSectionRef = useRef(null)
   const profileCopyHintTimerRef = useRef(null)
 
   useEffect(() => {
@@ -277,7 +278,7 @@ export default function App() {
   const fillRepoFromProfile = (htmlUrl) => {
     setRepoUrl(htmlUrl)
     setBannerError(null)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    repoSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
 
   const showProfileCopyHint = useCallback((hint) => {
@@ -368,62 +369,6 @@ export default function App() {
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4 lg:flex-row lg:items-end">
-            <label className="flex flex-1 flex-col gap-2 text-left">
-              <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-                <Github className="h-4 w-4 text-slate-400" aria-hidden />
-                GitHub Repo URL
-              </span>
-              <input
-                type="text"
-                name="repo_url"
-                autoComplete="off"
-                placeholder="https://github.com/sahip/repo veya owner/repo"
-                value={repoUrl}
-                onChange={(ev) => setRepoUrl(ev.target.value)}
-                className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 shadow-inner outline-none ring-emerald-500/0 transition placeholder:text-slate-600 focus:border-emerald-500/60 focus:ring-4 focus:ring-emerald-500/15"
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={loading || !repoUrl.trim()}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-8 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:from-emerald-400 hover:to-teal-400 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-                  Çalışıyor…
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-5 w-5" aria-hidden />
-                  Ajanı Başlat
-                </>
-              )}
-            </button>
-          </form>
-
-          {prUrl && (
-            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-emerald-100">
-              <span className="text-sm font-medium">Pull Request hazır.</span>
-              <a
-                href={prUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 shadow hover:bg-emerald-400"
-              >
-                PR&apos;yi GitHub&apos;da aç
-                <ExternalLink className="h-4 w-4" aria-hidden />
-              </a>
-            </div>
-          )}
-
-          {bannerError && !prUrl && (
-            <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-              {bannerError}
-            </div>
-          )}
-
           <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-5 shadow-inner shadow-black/20">
             <div className="mb-4 flex flex-wrap items-start gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-500/15 ring-1 ring-teal-400/30">
@@ -435,7 +380,7 @@ export default function App() {
                 </h2>
                 <p className="mt-1 text-xs text-slate-500 sm:text-sm">
                   Sadece profil bağlantısı girin; tüm herkese açık depolar listelenir. README varlığı kök
-                  dosyaya göre kontrol edilir. Satırdaki bağlantıyı üstteki «Repo URL» alanına aktarıp mevcut
+                  dosyaya göre kontrol edilir. Satırdaki bağlantıyı aşağıdaki «Repo URL» alanına aktarıp mevcut
                   ajan akışını kullanın.
                 </p>
               </div>
@@ -597,7 +542,7 @@ export default function App() {
                               onClick={() => fillRepoFromProfile(r.html_url)}
                               className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-200 transition hover:bg-emerald-500/20"
                             >
-                              URL&apos;yi üste al
+                              Repo alanına aktar
                             </button>
                           </td>
                         </tr>
@@ -605,6 +550,64 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            )}
+          </div>
+
+          <div ref={repoSectionRef} className="flex flex-col gap-4">
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4 lg:flex-row lg:items-end">
+              <label className="flex flex-1 flex-col gap-2 text-left">
+                <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <Github className="h-4 w-4 text-slate-400" aria-hidden />
+                  GitHub Repo URL
+                </span>
+                <input
+                  type="text"
+                  name="repo_url"
+                  autoComplete="off"
+                  placeholder="https://github.com/sahip/repo veya owner/repo"
+                  value={repoUrl}
+                  onChange={(ev) => setRepoUrl(ev.target.value)}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 shadow-inner outline-none ring-emerald-500/0 transition placeholder:text-slate-600 focus:border-emerald-500/60 focus:ring-4 focus:ring-emerald-500/15"
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={loading || !repoUrl.trim()}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-8 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:from-emerald-400 hover:to-teal-400 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+                    Çalışıyor…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-5 w-5" aria-hidden />
+                    Ajanı Başlat
+                  </>
+                )}
+              </button>
+            </form>
+
+            {prUrl && (
+              <div className="flex flex-wrap items-center gap-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-emerald-100">
+                <span className="text-sm font-medium">Pull Request hazır.</span>
+                <a
+                  href={prUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 shadow hover:bg-emerald-400"
+                >
+                  PR&apos;yi GitHub&apos;da aç
+                  <ExternalLink className="h-4 w-4" aria-hidden />
+                </a>
+              </div>
+            )}
+
+            {bannerError && !prUrl && (
+              <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                {bannerError}
               </div>
             )}
           </div>
