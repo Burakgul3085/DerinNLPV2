@@ -12,6 +12,7 @@ import {
   FolderGit2,
   Github,
   Loader2,
+  MessageSquare,
   Sparkles,
   TerminalSquare,
   Users,
@@ -125,6 +126,8 @@ export default function App() {
   const [prUrl, setPrUrl] = useState(null)
   const [bannerError, setBannerError] = useState(null)
   const [exportBusy, setExportBusy] = useState(false)
+  const [extraInstruction, setExtraInstruction] = useState('')
+  const [instructionMode, setInstructionMode] = useState('tam_ve_vurgu')
 
   const [profileUrl, setProfileUrl] = useState('')
   const [profileLoading, setProfileLoading] = useState(false)
@@ -166,13 +169,20 @@ export default function App() {
     appendLog('> SSE bağlantısı kuruluyor…')
 
     try {
+      const payload = { repo_url: trimmed }
+      const ek = extraInstruction.trim()
+      if (ek) {
+        payload.ek_talimat = ek
+        payload.talimat_modu = instructionMode
+      }
+
       const response = await fetch(`${API_BASE}/api/analyze`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Accept: 'text/event-stream',
         },
-        body: JSON.stringify({ repo_url: trimmed }),
+        body: JSON.stringify(payload),
       })
 
       if (!response.ok) {
@@ -555,39 +565,97 @@ export default function App() {
           </div>
 
           <div ref={repoSectionRef} className="flex flex-col gap-4">
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4 lg:flex-row lg:items-end">
-              <label className="flex flex-1 flex-col gap-2 text-left">
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+                <label className="flex flex-1 flex-col gap-2 text-left">
+                  <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                    <Github className="h-4 w-4 text-slate-400" aria-hidden />
+                    GitHub Repo URL
+                  </span>
+                  <input
+                    type="text"
+                    name="repo_url"
+                    autoComplete="off"
+                    placeholder="https://github.com/sahip/repo veya owner/repo"
+                    value={repoUrl}
+                    onChange={(ev) => setRepoUrl(ev.target.value)}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 shadow-inner outline-none ring-emerald-500/0 transition placeholder:text-slate-600 focus:border-emerald-500/60 focus:ring-4 focus:ring-emerald-500/15"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={loading || !repoUrl.trim()}
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-8 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:from-emerald-400 hover:to-teal-400 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+                      Çalışıyor…
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-5 w-5" aria-hidden />
+                      Ajanı Başlat
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <label className="flex flex-col gap-2 text-left">
                 <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-                  <Github className="h-4 w-4 text-slate-400" aria-hidden />
-                  GitHub Repo URL
+                  <MessageSquare className="h-4 w-4 text-slate-400" aria-hidden />
+                  Ek talimatlar (isteğe bağlı)
                 </span>
-                <input
-                  type="text"
-                  name="repo_url"
+                <textarea
+                  name="ek_talimat"
+                  rows={3}
+                  maxLength={4000}
                   autoComplete="off"
-                  placeholder="https://github.com/sahip/repo veya owner/repo"
-                  value={repoUrl}
-                  onChange={(ev) => setRepoUrl(ev.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 shadow-inner outline-none ring-emerald-500/0 transition placeholder:text-slate-600 focus:border-emerald-500/60 focus:ring-4 focus:ring-emerald-500/15"
+                  placeholder="Boş bırak: tam kapsamlı README. Örnek dolu: «Sadece sistem gereksinimleri ve kurulum adımlarını yaz» veya «Kullanılan teknolojileri tabloda özetle»."
+                  value={extraInstruction}
+                  onChange={(ev) => setExtraInstruction(ev.target.value)}
+                  className="min-h-[88px] w-full resize-y rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 shadow-inner outline-none transition placeholder:text-slate-600 focus:border-emerald-500/60 focus:ring-4 focus:ring-emerald-500/15"
                 />
+                <span className="text-xs text-slate-600">
+                  Çıktı dili Türkçe kalır. Ek talimat yazdığınızda aşağıdaki mod geçerlidir.
+                </span>
               </label>
-              <button
-                type="submit"
-                disabled={loading || !repoUrl.trim()}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-8 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:from-emerald-400 hover:to-teal-400 disabled:cursor-not-allowed disabled:opacity-40"
+
+              <div
+                className={`flex flex-col gap-2 rounded-xl border px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-6 ${
+                  extraInstruction.trim()
+                    ? 'border-emerald-500/30 bg-emerald-500/5'
+                    : 'border-slate-800 bg-slate-950/40'
+                }`}
               >
-                {loading ? (
-                  <>
-                    <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-                    Çalışıyor…
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-5 w-5" aria-hidden />
-                    Ajanı Başlat
-                  </>
-                )}
-              </button>
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Talimat modu
+                </span>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-300">
+                  <input
+                    type="radio"
+                    name="talimat_modu"
+                    value="odakli"
+                    checked={instructionMode === 'odakli'}
+                    onChange={() => setInstructionMode('odakli')}
+                    disabled={!extraInstruction.trim()}
+                    className="h-4 w-4 accent-emerald-500"
+                  />
+                  Odaklı çıktı (yalnız talep edilen kısım)
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-300">
+                  <input
+                    type="radio"
+                    name="talimat_modu"
+                    value="tam_ve_vurgu"
+                    checked={instructionMode === 'tam_ve_vurgu'}
+                    onChange={() => setInstructionMode('tam_ve_vurgu')}
+                    disabled={!extraInstruction.trim()}
+                    className="h-4 w-4 accent-emerald-500"
+                  />
+                  Tam README + talimat vurgusu
+                </label>
+              </div>
             </form>
 
             {prUrl && (
@@ -627,7 +695,8 @@ export default function App() {
             >
               {logLines.length === 0 && (
                 <p className="text-slate-600">
-                  Hazır. Repo adresini girip &quot;Ajanı Başlat&quot; ile süreci başlatın.
+                  Hazır. Repo adresini girip &quot;Ajanı Başlat&quot; ile süreci başlatın. İsterseniz ek
+                  talimat alanına odaklı istek yazın; boşsa mevcut tam README akışı çalışır.
                 </p>
               )}
               {logLines.map((line) => (

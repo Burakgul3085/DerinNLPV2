@@ -14,7 +14,7 @@ import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncGenerator, Callable
+from typing import AsyncGenerator, Callable, Literal, Optional
 from urllib.parse import urlparse
 
 import google.generativeai as genai
@@ -24,7 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from github import Github, GithubException
 from github.Repository import Repository
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 _BACKEND_ROOT = Path(__file__).resolve().parent
 # Windows'ta kullanıcı ortamında boş/wrong GITHUB_TOKEN varsa varsayılan load_dotenv bunu ezmez; .env öncelikli olsun.
@@ -137,6 +137,22 @@ SYSTEM_PROMPT = (
     "Çıktı yalnızca README içeriği; ekstra sohbet metni veya 'tabii işte' gibi ön ek yok."
 )
 
+# Ek talimat — odaklı mod: tam README şeması yerine yalnızca kullanıcı talebi (Türkçe Markdown).
+FOCUSED_SYSTEM_PROMPT = (
+    "Sen uzman bir teknik yazarsın. Sana bir projenin bağlam metni ve kullanıcının NET bir talebi veriliyor.\n"
+    "Çıktı yalnızca Türkçe Markdown olmalı ve YALNIZCA bu talebi karşılamalı.\n"
+    "Genel amaçlı README iskeleti (içindekiler, özet, lisans, tam kurulum rehberi vb.) üretme; talep "
+    "edilmeyen hiçbir bölüm veya başlık ekleme.\n"
+    "Gerekirse tablo kullan; en fazla tek ```mermaid``` bloğu ekleyebilirsin. Mermaid 11 uyumu:\n"
+    "- flowchart TB veya graph LR kullan; subgraph kullanma.\n"
+    "- Düğüm kimlikleri yalnız harf/rakam/alt çizgi; kökte tek başına '.' kullanma; "
+    "root_node[\"Metin\"] biçimi.\n"
+    "- Bağlantı: A --> B. HTML, <style>, %%{init: ...}%% ve classDef kullanma.\n"
+    "- En fazla 18 düğüm ve 24 ok.\n"
+    "Bağlamda görünmeyen komut, sürüm veya URL uydurma. Gizli anahtar/token örneği yazma.\n"
+    "Çıktı yalnızca Markdown; ekstra sohbet metni yok."
+)
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
@@ -171,6 +187,25 @@ async def derinnlp_response_marker(request, call_next):
 
 class AnalyzeRequest(BaseModel):
     repo_url: str = Field(..., min_length=10, description="GitHub repository HTTPS URL")
+    ek_talimat: Optional[str] = Field(
+        default=None,
+        max_length=4000,
+        description="İsteğe bağlı ek talimat; boşsa mevcut tam README akışı değişmez.",
+    )
+    talimat_modu: Literal["odakli", "tam_ve_vurgu"] = Field(
+        default="tam_ve_vurgu",
+        description="ek_talimat doluysa: odakli (yalnız talep) veya tam_ve_vurgu (tam README + vurgu).",
+    )
+
+    @field_validator("ek_talimat", mode="before")
+    @classmethod
+    def _normalize_ek_talimat(cls, v: object) -> Optional[str]:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            return s if s else None
+        return v
 
 
 class ProfileReposRequest(BaseModel):
@@ -612,14 +647,50 @@ def sanitize_readme_mermaid_blocks(readme: str) -> str:
     return re.sub(r"```mermaid\s*\n([\s\S]*?)```", _sub, readme, flags=re.IGNORECASE)
 
 
-def generate_readme_with_gemini(context: str, log: Callable[[str], None]) -> str:
-    log("[3/5] Gemini ile README üretiliyor…")
+def generate_readme_with_gemini(
+    context: str,
+    log: Callable[[str], None],
+    ek_talimat: Optional[str] = None,
+    talimat_modu: Literal["odakli", "tam_ve_vurgu"] = "tam_ve_vurgu",
+) -> str:
+    """
+    ek_talimat boş veya None ise: önceki davranışla aynı (tam README SYSTEM_PROMPT + varsayılan kullanıcı metni).
+    ek_talimat dolu ve odakli: FOCUSED_SYSTEM_PROMPT + yalnız talep.
+    ek_talimat dolu ve tam_ve_vurgu: SYSTEM_PROMPT + bağlam + ek talimat vurgusu.
+    """
     genai.configure(api_key=GEMINI_API_KEY)
-    user_payload = (
-        "Projeye ait birleştirilmiş bağlam:\n\n"
-        + context
-        + "\n\nYukarıdaki bilgilere göre tek bir README.md çıktısı üret."
-    )
+
+    log("[3/5] Gemini ile README üretiliyor…")
+    ek = (ek_talimat or "").strip()
+    if ek:
+        if talimat_modu == "odakli":
+            log("[3/5] Ek talimat modu: odaklı (yalnızca talep edilen çıktı).")
+            system_instruction = FOCUSED_SYSTEM_PROMPT
+            user_payload = (
+                "Proje bağlamı:\n\n"
+                + context
+                + "\n\n---\nKullanıcı talebi:\n"
+                + ek
+                + "\n\nYukarıdaki talebe uygun çıktıyı tek parça Markdown olarak üret."
+            )
+        else:
+            log("[3/5] Ek talimat modu: tam README + talimat vurgusu.")
+            system_instruction = SYSTEM_PROMPT
+            user_payload = (
+                "Projeye ait birleştirilmiş bağlam:\n\n"
+                + context
+                + "\n\n---\nEk kullanıcı talimatları (bu noktalara özellikle vurgu ver; gerektiğinde "
+                "ilgili bölümleri genişlet):\n"
+                + ek
+                + "\n\nYukarıdaki bilgilere göre tek bir README.md çıktısı üret."
+            )
+    else:
+        system_instruction = SYSTEM_PROMPT
+        user_payload = (
+            "Projeye ait birleştirilmiş bağlam:\n\n"
+            + context
+            + "\n\nYukarıdaki bilgilere göre tek bir README.md çıktısı üret."
+        )
 
     candidates = _gemini_model_candidates()
     last_err: BaseException | None = None
@@ -631,7 +702,7 @@ def generate_readme_with_gemini(context: str, log: Callable[[str], None]) -> str
             log(f"[3/5] Denenen model: {model_name}")
             model = genai.GenerativeModel(
                 model_name=model_name,
-                system_instruction=SYSTEM_PROMPT,
+                system_instruction=system_instruction,
             )
             resp = model.generate_content(user_payload)
             chosen = model_name
@@ -660,7 +731,11 @@ def generate_readme_with_gemini(context: str, log: Callable[[str], None]) -> str
     return text
 
 
-async def run_analyze_pipeline(repo_url: str) -> AsyncGenerator[str, None]:
+async def run_analyze_pipeline(
+    repo_url: str,
+    ek_talimat: Optional[str] = None,
+    talimat_modu: Literal["odakli", "tam_ve_vurgu"] = "tam_ve_vurgu",
+) -> AsyncGenerator[str, None]:
     reload_local_env_into_globals()
 
     thread_logs: list[str] = []
@@ -734,7 +809,12 @@ async def run_analyze_pipeline(repo_url: str) -> AsyncGenerator[str, None]:
     try:
 
         def gen():
-            return generate_readme_with_gemini(context or "", slog)
+            return generate_readme_with_gemini(
+                context or "",
+                slog,
+                ek_talimat=ek_talimat,
+                talimat_modu=talimat_modu,
+            )
 
         readme = await asyncio.to_thread(gen)
     except Exception as ex:
@@ -772,8 +852,11 @@ async def analyze_repo(body: AnalyzeRequest):
     if not body.repo_url.strip():
         raise HTTPException(status_code=400, detail="repo_url boş olamaz.")
 
+    ek = body.ek_talimat
+    mod: Literal["odakli", "tam_ve_vurgu"] = body.talimat_modu if ek else "tam_ve_vurgu"
+
     async def event_stream() -> AsyncGenerator[str, None]:
-        async for chunk in run_analyze_pipeline(body.repo_url.strip()):
+        async for chunk in run_analyze_pipeline(body.repo_url.strip(), ek_talimat=ek, talimat_modu=mod):
             yield chunk
 
     return StreamingResponse(

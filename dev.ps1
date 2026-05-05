@@ -103,7 +103,10 @@ function Start-All {
     $frontendLog = Join-Path $LogDir "frontend.log"
     $frontendErr = Join-Path $LogDir "frontend.err.log"
 
-    $backend = Start-Process -FilePath "python" `
+    $venvPy = Join-Path $BackendDir ".venv\Scripts\python.exe"
+    $pythonExe = if (Test-Path -LiteralPath $venvPy) { $venvPy } else { "python" }
+
+    $backend = Start-Process -FilePath $pythonExe `
         -ArgumentList "-m uvicorn main:app --host 127.0.0.1 --port $BackendPort" `
         -WorkingDirectory $BackendDir `
         -RedirectStandardOutput $backendLog `
