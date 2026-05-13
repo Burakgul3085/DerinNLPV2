@@ -128,6 +128,7 @@ export default function App() {
   const [exportBusy, setExportBusy] = useState(false)
   const [extraInstruction, setExtraInstruction] = useState('')
   const [instructionMode, setInstructionMode] = useState('tam_ve_vurgu')
+  const [pipelineMode, setPipelineMode] = useState('classic')
 
   const [profileUrl, setProfileUrl] = useState('')
   const [profileLoading, setProfileLoading] = useState(false)
@@ -171,12 +172,20 @@ export default function App() {
     try {
       const payload = { repo_url: trimmed }
       const ek = extraInstruction.trim()
+      const isAgent = pipelineMode === 'agent'
       if (ek) {
         payload.ek_talimat = ek
-        payload.talimat_modu = instructionMode
+        if (!isAgent) payload.talimat_modu = instructionMode
       }
 
-      const response = await fetch(`${API_BASE}/api/analyze`, {
+      const endpoint = isAgent ? '/api/agent-analyze' : '/api/analyze'
+      appendLog(
+        isAgent
+          ? '> Otonom ajan modu: araç çağırarak çalışacak.'
+          : '> Klasik mod: kural tabanlı pipeline.',
+      )
+
+      const response = await fetch(`${API_BASE}${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -566,6 +575,36 @@ export default function App() {
 
           <div ref={repoSectionRef} className="flex flex-col gap-4">
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-6">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Çalışma modu
+                </span>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-300">
+                  <input
+                    type="radio"
+                    name="pipeline_modu"
+                    value="classic"
+                    checked={pipelineMode === 'classic'}
+                    onChange={() => setPipelineMode('classic')}
+                    className="h-4 w-4 accent-emerald-500"
+                  />
+                  Klasik kural tabanlı akış
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-300">
+                  <input
+                    type="radio"
+                    name="pipeline_modu"
+                    value="agent"
+                    checked={pipelineMode === 'agent'}
+                    onChange={() => setPipelineMode('agent')}
+                    className="h-4 w-4 accent-emerald-500"
+                  />
+                  Otonom ajan (LLM araç çağırarak karar verir)
+                </label>
+                <span className="text-[11px] text-slate-500">
+                  Ajan modunda repo keşfi, dosya okuma, bölüm yazma kararları modele aittir.
+                </span>
+              </div>
               <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
                 <label className="flex flex-1 flex-col gap-2 text-left">
                   <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -621,41 +660,50 @@ export default function App() {
                 </span>
               </label>
 
-              <div
-                className={`flex flex-col gap-2 rounded-xl border px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-6 ${
-                  extraInstruction.trim()
-                    ? 'border-emerald-500/30 bg-emerald-500/5'
-                    : 'border-slate-800 bg-slate-950/40'
-                }`}
-              >
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Talimat modu
-                </span>
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-300">
-                  <input
-                    type="radio"
-                    name="talimat_modu"
-                    value="odakli"
-                    checked={instructionMode === 'odakli'}
-                    onChange={() => setInstructionMode('odakli')}
-                    disabled={!extraInstruction.trim()}
-                    className="h-4 w-4 accent-emerald-500"
-                  />
-                  Odaklı çıktı (yalnız talep edilen kısım)
-                </label>
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-300">
-                  <input
-                    type="radio"
-                    name="talimat_modu"
-                    value="tam_ve_vurgu"
-                    checked={instructionMode === 'tam_ve_vurgu'}
-                    onChange={() => setInstructionMode('tam_ve_vurgu')}
-                    disabled={!extraInstruction.trim()}
-                    className="h-4 w-4 accent-emerald-500"
-                  />
-                  Tam README + talimat vurgusu
-                </label>
-              </div>
+              {pipelineMode === 'classic' && (
+                <div
+                  className={`flex flex-col gap-2 rounded-xl border px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-6 ${
+                    extraInstruction.trim()
+                      ? 'border-emerald-500/30 bg-emerald-500/5'
+                      : 'border-slate-800 bg-slate-950/40'
+                  }`}
+                >
+                  <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Talimat modu (klasik)
+                  </span>
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-300">
+                    <input
+                      type="radio"
+                      name="talimat_modu"
+                      value="odakli"
+                      checked={instructionMode === 'odakli'}
+                      onChange={() => setInstructionMode('odakli')}
+                      disabled={!extraInstruction.trim()}
+                      className="h-4 w-4 accent-emerald-500"
+                    />
+                    Odaklı çıktı (yalnız talep edilen kısım)
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-300">
+                    <input
+                      type="radio"
+                      name="talimat_modu"
+                      value="tam_ve_vurgu"
+                      checked={instructionMode === 'tam_ve_vurgu'}
+                      onChange={() => setInstructionMode('tam_ve_vurgu')}
+                      disabled={!extraInstruction.trim()}
+                      className="h-4 w-4 accent-emerald-500"
+                    />
+                    Tam README + talimat vurgusu
+                  </label>
+                </div>
+              )}
+              {pipelineMode === 'agent' && (
+                <div className="rounded-xl border border-teal-500/30 bg-teal-500/5 px-4 py-3 text-xs text-teal-100">
+                  Otonom ajan modunda <span className="font-semibold">sıra ve içerik</span> Gemini
+                  tarafından karar verilir. Bütçe: en çok 20 tur, 50 dosya okuma, dosya başı
+                  256 KB. Hazır olunca ajan PR&apos;ı kendisi açar.
+                </div>
+              )}
             </form>
 
             {prUrl && (

@@ -870,6 +870,64 @@ async def analyze_repo(body: AnalyzeRequest):
     )
 
 
+class AgentAnalyzeRequest(BaseModel):
+    repo_url: str = Field(..., min_length=10, description="GitHub repository HTTPS URL")
+    ek_talimat: Optional[str] = Field(
+        default=None,
+        max_length=4000,
+        description="İsteğe bağlı ek istek; ajan bu hedefi öncelikli kabul eder.",
+    )
+
+    @field_validator("ek_talimat", mode="before")
+    @classmethod
+    def _normalize_agent_ek(cls, v: object) -> Optional[str]:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            return s if s else None
+        return v
+
+
+@app.post("/api/agent-analyze")
+async def agent_analyze_repo(body: AgentAnalyzeRequest):
+    """Otonom (tool-calling) ajan akışı. Klasik /api/analyze ile koda dokunmaz; ayrı bir
+    yolun üzerinden çalışır."""
+    if not body.repo_url.strip():
+        raise HTTPException(status_code=400, detail="repo_url boş olamaz.")
+
+    # Geç içe aktarma: agent.py google-genai kullanır; klasik akış etkilenmesin.
+    from agent import run_agent_pipeline  # type: ignore[import-not-found]
+
+    reload_local_env_into_globals()
+
+    async def event_stream() -> AsyncGenerator[str, None]:
+        try:
+            async for payload in run_agent_pipeline(
+                repo_url=body.repo_url.strip(),
+                api_key=GEMINI_API_KEY,
+                github_token=GITHUB_TOKEN,
+                preferred_model=GEMINI_MODEL_PREF,
+                ek_talimat=body.ek_talimat,
+                parse_repo=parse_github_repo,
+                pr_factory=lambda g, owner, name, readme, log: create_docs_pr(g, owner, name, readme, log),
+                mermaid_sanitizer=sanitize_readme_mermaid_blocks,
+            ):
+                yield sse_pack(payload)
+        except Exception as ex:  # noqa: BLE001
+            yield sse_pack({"type": "error", "message": f"Ajan akışı hatası: {ex}"})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 def _collect_user_repos_with_readme_flag(g: Github, login: str) -> dict:
     """Profil sahibinin GitHub API ile listelenen depoları; kök README varlığı tek tek doğrulanır."""
     user = g.get_user(login)
@@ -954,6 +1012,7 @@ def root_manifest():
         "meta": "/api/meta",
         "meta_alt": "/meta",
         "analyze": "/api/analyze",
+        "agent_analyze": "/api/agent-analyze",
         "profile_repos": "/api/profile/repos",
     }
 
