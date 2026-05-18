@@ -70,17 +70,15 @@ Proje, hem arka uç (FastAPI) hem de ön uç (React + Vite) bileşenlerini içer
     ```bash
     cd backend
     python -m venv .venv
-    .venv/bin/pip install -r requirements.txt # Eğer requirements.txt varsa, yoksa manuel olarak:
-    # .venv/bin/pip install fastapi uvicorn python-dotenv pygithub google-generativeai pydantic
+    .venv/bin/pip install fastapi uvicorn python-dotenv pygithub google-generativeai pydantic # requirements.txt dosyası depoda bulunamadığından manuel kurulum önerilir.
     cd ..
     ```
-    *Not:* `requirements.txt` dosyası depoda bulunmamaktadır, manuel kurulum veya oluşturulması önerilir.
 
 4.  **Ön uç bağımlılıklarını yükleyin:**
     `frontend` dizinine gidin ve Node.js bağımlılıklarını kurun:
     ```bash
     cd frontend
-    npm install # veya npm ci
+    npm install
     cd ..
     ```
 
@@ -113,6 +111,7 @@ Projenin temel yapılandırması `backend/.env` dosyası üzerinden yapılır.
 -   **GitHub API İstemcisi:** PyGithub
 -   **Yapay Zeka Modeli:** Google Generative AI (Gemini)
 -   **Ortam Değişkeni Yönetimi:** python-dotenv
+-   **Tip Kontrolü:** Pyright
 
 **Ön Uç (Frontend):**
 -   **Çerçeve:** React 18.3.1
@@ -123,30 +122,32 @@ Projenin temel yapılandırması `backend/.env` dosyası üzerinden yapılır.
 -   **Diyagramlar:** Mermaid 11.14.0
 -   **Simgeler:** Lucide React 0.468.0
 -   **Kod Kalitesi:** ESLint 9.15.0
+-   **Word Belgesi Oluşturma:** docx 9.6.1
 
 ## Mimari ve klasör yapısı
 Proje, ayrı frontend ve backend dizinleriyle modüler bir yapıya sahiptir. `backend` klasörü bir FastAPI uygulaması barındırırken, `frontend` klasörü bir React uygulamasını Vite ile barındırır. Bu ayrım, her bir bileşenin bağımsız olarak geliştirilmesini, test edilmesini ve dağıtılmasını kolaylaştırır.
 
 Arka uç, GitHub API ile etkileşime girerek depo bilgilerini toplar ve Gemini API ile dokümantasyon metinleri üretir. Ayrıca, ön yüze SSE (Sunucu Tarafından Gönderilen Olaylar) kullanarak canlı log akışı sağlar. Ön uç, kullanıcı etkileşimlerini yönetir, arka uçtan gelen verileri işler ve üretilen README'yi etkileşimli bir şekilde görüntüler.
 
-| Bölüm / klasör            | Kısa açıklama                                                                            |
-| :------------------------ | :--------------------------------------------------------------------------------------- |
-| `.`                       | Deponun kök dizini. `README.md` ve genel çalıştırma betiği `dev.bat` içerir.             |
-| `backend/`                | FastAPI tabanlı arka uç uygulamasını barındırır. Python kaynak kodları ve yapılandırma dosyaları burada bulunur. |
-| `backend/main.py`         | Arka uç uygulamasının ana giriş noktası, API uç noktalarını tanımlar.                    |
-| `backend/pyrightconfig.json` | Python tip kontrol aracı Pyright için yapılandırma dosyası.                           |
+| Bölüm / klasör            | Kısa açıklama                                                                                                     |
+| :------------------------ | :---------------------------------------------------------------------------------------------------------------- |
+| `.`                       | Deponun kök dizini. `README.md` ve genel çalıştırma betiği `dev.bat` içerir.                                        |
+| `backend/`                | FastAPI tabanlı arka uç uygulamasını barındırır. Python kaynak kodları ve yapılandırma dosyaları burada bulunur.     |
+| `backend/agent.py`        | Otonom dokümantasyon ajanının ana mantığını, araç tanımlarını ve iş akışını içerir.                                |
+| `backend/main.py`         | Arka uç uygulamasının ana giriş noktası, API uç noktalarını tanımlar ve klasik iş akışını yönetir.                 |
+| `backend/pyrightconfig.json` | Python tip kontrol aracı Pyright için yapılandırma dosyası.                                                   |
 | `frontend/`               | React tabanlı ön uç uygulamasını barındırır. JavaScript/JSX, CSS ve ilgili yapılandırma dosyaları burada bulunur. |
-| `frontend/src/`           | Ön uç uygulamasının ana kaynak kodlarını (React bileşenleri, stil, yardımcı fonksiyonlar) içerir. |
-| `frontend/src/App.jsx`    | Ana React bileşeni; kullanıcı arayüzü, formlar ve API etkileşimi mantığını yönetir.   |
-| `frontend/src/MermaidBlock.jsx` | Mermaid diyagramlarını işleyen React bileşeni.                                    |
-| `frontend/src/readmeToDocx.js` | Markdown'dan Word (.docx) belgesi oluşturma yardımcı işlevleri.                  |
-| `frontend/package.json`   | Ön uç projesinin bağımlılıkları ve betik tanımları.                                     |
-| `frontend/package-lock.json` | Ön uç bağımlılıklarının kilit dosyası (kesin sürümleri listeler).                 |
-| `frontend/vite.config.js` | Vite geliştirme sunucusu ve derleme ayarları (API proxy dahil).                          |
-| `frontend/tailwind.config.js` | Tailwind CSS yapılandırma dosyası.                                                       |
-| `frontend/postcss.config.js` | PostCSS yapılandırma dosyası.                                                            |
-| `frontend/eslint.config.js` | ESLint yapılandırma dosyası; kod kalitesi ve stil denetimi.                              |
-| `frontend/index.html`     | Ön uç uygulamasının ana HTML dosyası.                                                   |
+| `frontend/src/`           | Ön uç uygulamasının ana kaynak kodlarını (React bileşenleri, stil, yardımcı fonksiyonlar) içerir.                   |
+| `frontend/src/App.jsx`    | Ana React bileşeni; kullanıcı arayüzü, formlar ve API etkileşimi mantığını yönetir.                              |
+| `frontend/src/MermaidBlock.jsx` | Mermaid diyagramlarını işleyen React bileşeni.                                                               |
+| `frontend/src/readmeToDocx.js` | Markdown'dan Word (.docx) belgesi oluşturma yardımcı işlevleri.                                          |
+| `frontend/package.json`   | Ön uç projesinin bağımlılıkları ve betik tanımları.                                                              |
+| `frontend/package-lock.json` | Ön uç bağımlılıklarının kilit dosyası (kesin sürümleri listeler).                                            |
+| `frontend/vite.config.js` | Vite geliştirme sunucusu ve derleme ayarları (API proxy dahil).                                                   |
+| `frontend/tailwind.config.js` | Tailwind CSS yapılandırma dosyası.                                                                                |
+| `frontend/postcss.config.js` | PostCSS yapılandırma dosyası.                                                                                     |
+| `frontend/eslint.config.js` | ESLint yapılandırma dosyası; kod kalitesi ve stil denetimi.                                                       |
+| `frontend/index.html`     | Ön uç uygulamasının ana HTML dosyası.                                                                             |
 
 ```mermaid
 flowchart LR
@@ -166,6 +167,8 @@ Arka uç uygulaması (FastAPI) aşağıdaki API uç noktalarını sunar:
 
 -   **`POST /api/analyze`**: Belirtilen GitHub depo URL'sini analiz eder, yapay zeka ile README üretir ve isteğe bağlı olarak bir Pull Request oluşturur. SSE (Sunucu Tarafından Gönderilen Olaylar) üzerinden canlı log akışı ve nihai README içeriğini döner.
     -   **Giriş:** `repo_url` (GitHub depo HTTPS URL'si), `ek_talimat` (isteğe bağlı ek talimat metni), `talimat_modu` (`"odakli"` veya `"tam_ve_vurgu"`).
+-   **`POST /api/agent-analyze`**: Otonom (araç çağıran) ajan akışı ile README üretimi. Klasik `/api/analyze` akışına dokunmaz.
+    -   **Giriş:** `repo_url` (GitHub depo HTTPS URL'si), `ek_talimat` (isteğe bağlı ek istek).
 -   **`POST /api/profile/repos`**: Belirtilen GitHub kullanıcı profil URL'sine ait tüm herkese açık depoları listeler. Her deponun README.md dosyasına sahip olup olmadığını da belirtir.
     -   **Giriş:** `profile_url` (GitHub kullanıcı profil URL'si).
 -   **`GET /`**: Uygulamanın temel manifest bilgilerini döndürür.
